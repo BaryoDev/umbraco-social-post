@@ -7,7 +7,7 @@
     "Name": "BaryoDev",
     "Description": "Small open source .NET and JavaScript packages.",
     "Url": "https://github.com/BaryoDev",
-    "ImageUrl": "https://raw.githubusercontent.com/BaryoDev/BaryoDev.Umbraco.SocialPost/main/icon.png"
+    "ImageUrl": "https://raw.githubusercontent.com/BaryoDev/umbraco-social-post/main/icon.png"
   },
   "DocumentationUrl": "https://github.com/BaryoDev/umbraco-social-post#readme",
   "IssueTrackerUrl": "https://github.com/BaryoDev/umbraco-social-post/issues",
