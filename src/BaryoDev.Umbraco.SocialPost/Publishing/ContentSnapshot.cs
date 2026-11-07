@@ -20,7 +20,7 @@ public sealed partial class ContentSnapshotReader(
     IMediaService media,
     ILanguageService languages)
 {
-    // Nothing here depends on the published cache, so it works inside the publish notification.
+    // The link comes from the published cache, so at first publish it can be empty. The queue worker resolves it again when it sends.
     public Snapshot? Read(IContent content)
     {
         SocialPostOptions o = options.Value;
