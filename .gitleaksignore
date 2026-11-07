@@ -1,1 +1,3 @@
 07ae4647599c7a02daddf3f311b5bfacf012283a:src/BaryoDev.Umbraco.SocialPost/Connectors/BlueskyConnector.cs:connection-string-password:34
+# BlueskyConnector reads the app password from settings; no secret in source.
+31eca008f451392f7a35f6c10225c23cb4afc829:src/BaryoDev.Umbraco.SocialPost/Connectors/BlueskyConnector.cs:connection-string-password:35
