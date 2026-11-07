@@ -1,0 +1,16 @@
+bin/
+obj/
+*.user
+.vs/
+.idea/
+TestResults/
+*.nupkg
+.env
+*.env
+
+appsettings-schema.json
+appsettings-schema.Umbraco.Cms.json
+umbraco-package-schema.json
+
+# Umbraco integration test scratch
+tests/*/TEMP/

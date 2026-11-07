@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <PackageId>BaryoDev.Umbraco.SocialPost</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>BaryoDev</Authors>
+    <Description>Post published Umbraco 17 content to LinkedIn, Bluesky and Mastodon from a retrying queue, with a backoffice dashboard.</Description>
+    <PackageTags>umbraco umbraco-marketplace social linkedin bluesky mastodon</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/BaryoDev/umbraco-social-post</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/BaryoDev/umbraco-social-post</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <StaticWebAssetBasePath>/</StaticWebAssetBasePath>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Umbraco.Cms.Web.Common" Version="[17.8.1,18.0.0)" />
+    <PackageReference Include="Umbraco.Cms.Api.Management" Version="[17.8.1,18.0.0)" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="BaryoDev.Umbraco.SocialPost.Tests" />
+    <InternalsVisibleTo Include="BaryoDev.Umbraco.SocialPost.IntegrationTests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../icon.png" Pack="true" PackagePath="/" />
+  </ItemGroup>
+</Project>

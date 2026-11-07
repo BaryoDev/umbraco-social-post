@@ -1,0 +1,16 @@
+{
+  "$schema": "https://marketplace.umbraco.com/umbraco-marketplace-schema.json",
+  "PackageType": "Package",
+  "Category": "Developer Tools",
+  "Description": "Post new Umbraco 17 content to LinkedIn, Bluesky and Mastodon. When configured document types are published for the first time, the title, link, summary and image go into a queue and a background service posts them with retries. A post is never sent twice to the same network unless you force it. Credentials come from configuration or are stored encrypted. The backoffice never shows a stored secret. A Settings dashboard shows each network, the queue with retry and cancel, a post now action and share links for X, Facebook and LinkedIn. Free and MIT licensed.",
+  "AuthorDetails": {
+    "Name": "BaryoDev",
+    "Description": "Small open source .NET and JavaScript packages.",
+    "Url": "https://github.com/BaryoDev",
+    "ImageUrl": "https://raw.githubusercontent.com/BaryoDev/BaryoDev.Umbraco.SocialPost/main/icon.png"
+  },
+  "DocumentationUrl": "https://github.com/BaryoDev/umbraco-social-post#readme",
+  "IssueTrackerUrl": "https://github.com/BaryoDev/umbraco-social-post/issues",
+  "LicenseTypes": [ "Free" ],
+  "Tags": [ "social", "linkedin", "bluesky", "mastodon", "auto post" ]
+}

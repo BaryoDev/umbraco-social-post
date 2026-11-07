@@ -1,0 +1,17 @@
+# Secret scanning config. The default rules cover provider tokens. The rules below cover
+# credentials that sit in config files, which the defaults miss.
+
+title = "BaryoDev.Umbraco.SocialPost"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "connection-string-password"
+description = "Password inside a connection string"
+regex = '''(?i)(password|pwd)\s*=\s*[^;"'\s]{6,}'''
+tags = ["password", "connection-string"]
+[rules.allowlist]
+regexes = [
+  '''(?i)(password|pwd)\s*=\s*(placeholder|changeme|example|your[-_]?password)''',
+]
