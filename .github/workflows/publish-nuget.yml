@@ -12,11 +12,6 @@ on:
     branches:
       - main
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Build, test and pack without publishing"
-        type: boolean
-        default: true
 
 concurrency:
   group: publish
@@ -166,7 +161,7 @@ jobs:
           path: ./nupkgs/*
 
       # Requested here because the key expires after an hour and each OIDC token buys exactly one
-      # key. Runs on dry runs too, so a dry run verifies the trusted publishing policy. Obtaining
+      # key. Runs on manual runs too, which never publish, so a manual run verifies the trusted publishing policy. Obtaining
       # a key publishes nothing.
       - name: Exchange OIDC token for a short-lived NuGet key
         id: nuget_login
