@@ -152,7 +152,13 @@ public sealed class CredentialStore(
             catch (DbException)
             {
                 // Another save of the same field won the race and hit the unique index. Update its row instead.
-                row = scope.Database.SingleOrDefault<CredentialRow>("WHERE Network = @0 AND Field = @1", connector.Name, field) ?? throw new InvalidOperationException("The credential row could not be written.");
+                // With no row to update the error was something else, so let it surface unchanged.
+                row = scope.Database.SingleOrDefault<CredentialRow>("WHERE Network = @0 AND Field = @1", connector.Name, field);
+                if (row is null)
+                {
+                    throw;
+                }
+
                 row.Value = stored;
                 row.Protected = secret;
                 scope.Database.Update(row);
