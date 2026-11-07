@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Umbraco.Cms.Api.Management.Controllers;
+using Umbraco.Cms.Core;
 using Umbraco.Cms.Api.Management.Routing;
 using Umbraco.Cms.Core.Actions;
 using Umbraco.Cms.Core.Models;
@@ -79,20 +80,46 @@ public sealed class SocialPostController(
 
     [HttpGet("queue")]
     [ProducesResponseType<List<QueueItem>>(StatusCodes.Status200OK)]
-    public IActionResult Queue([FromQuery] string? status = null, [FromQuery] int take = 100) =>
-        Ok(repository.List(string.IsNullOrWhiteSpace(status) ? null : status, Math.Clamp(take, 1, 500)).Select(ToItem).ToList());
+    public async Task<IActionResult> Queue([FromQuery] string? status = null, [FromQuery] int take = 100)
+    {
+        // A Settings user only sees rows for content they may browse. Administrators see every row.
+        var items = new List<QueueItem>();
+        foreach (QueueRow row in repository.List(string.IsNullOrWhiteSpace(status) ? null : status, Math.Clamp(take, 1, 500)))
+        {
+            if (await CanSeeAsync(row.ContentKey))
+            {
+                items.Add(ToItem(row));
+            }
+        }
+
+        return Ok(items);
+    }
 
     [HttpPost("queue/{id:int}/retry")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ApiError>(StatusCodes.Status409Conflict)]
-    public IActionResult Retry(int id) =>
-        queue.Retry(id) ? NoContent() : Conflict(new ApiError("Only failed or cancelled rows can be retried."));
+    public async Task<IActionResult> Retry(int id)
+    {
+        if (!await CanChangeAsync(id))
+        {
+            return Forbid();
+        }
+
+        return queue.Retry(id) ? NoContent() : Conflict(new ApiError("Only failed or cancelled rows can be retried."));
+    }
 
     [HttpPost("queue/{id:int}/cancel")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ApiError>(StatusCodes.Status409Conflict)]
-    public IActionResult Cancel(int id) =>
-        queue.Cancel(id) ? NoContent() : Conflict(new ApiError("Only pending rows can be cancelled."));
+    public async Task<IActionResult> Cancel(int id)
+    {
+        if (!await CanChangeAsync(id))
+        {
+            return Forbid();
+        }
+
+        return queue.Cancel(id) ? NoContent() : Conflict(new ApiError("Only pending rows can be cancelled."));
+    }
 
     [HttpPost("post-now")]
     [ProducesResponseType<List<EnqueueResult>>(StatusCodes.Status200OK)]
@@ -169,7 +196,9 @@ public sealed class SocialPostController(
         return Ok(new ShareInfo(snap.Title, url, links));
     }
 
-    private async Task<bool> CanBrowseAsync(IContent content)
+    private Task<bool> CanBrowseAsync(IContent content) => CanBrowseAsync(content.Key);
+
+    private async Task<bool> CanBrowseAsync(Guid contentKey)
     {
         IUser? user = security.BackOfficeSecurity?.CurrentUser;
         if (user is null)
@@ -177,8 +206,18 @@ public sealed class SocialPostController(
             return false;
         }
 
-        ContentAuthorizationStatus status = await permissions.AuthorizeAccessAsync(user, content.Key, ActionBrowse.ActionLetter.ToString());
+        ContentAuthorizationStatus status = await permissions.AuthorizeAccessAsync(user, contentKey, ActionBrowse.ActionLetter.ToString());
         return status == ContentAuthorizationStatus.Success;
+    }
+
+    // Rows of deleted content have no node to check, so only administrators see them.
+    private async Task<bool> CanSeeAsync(Guid contentKey) =>
+        security.BackOfficeSecurity?.CurrentUser is { } u && u.Groups.Any(g => g.Alias == Constants.Security.AdminGroupAlias) || await CanBrowseAsync(contentKey);
+
+    private async Task<bool> CanChangeAsync(int id)
+    {
+        QueueRow? row = repository.Get(id);
+        return row is null || await CanSeeAsync(row.ContentKey);
     }
 
     private ISocialConnector? Find(string name) =>

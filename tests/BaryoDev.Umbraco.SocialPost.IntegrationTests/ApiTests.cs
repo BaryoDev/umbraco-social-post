@@ -9,6 +9,8 @@ using NUnit.Framework;
 using Umbraco.Cms.Core.Models;
 using Umbraco.Cms.Core.Models.Membership;
 using Umbraco.Cms.Core.Security;
+using Umbraco.Cms.Core.Services;
+using Umbraco.Cms.Core.Services.AuthorizationStatus;
 using Umbraco.Cms.Tests.Common.Testing;
 
 namespace BaryoDev.Umbraco.SocialPost.IntegrationTests;
@@ -106,5 +108,30 @@ public class ApiTests : SocialPostFixture
 
         Assert.That(await controller.Share(draft.Key), Is.InstanceOf<BadRequestObjectResult>());
         Assert.That(await controller.Share(Guid.NewGuid()), Is.InstanceOf<NotFoundResult>());
+    }
+
+    [Test]
+    public async Task A_user_without_Browse_does_not_see_or_change_queue_rows()
+    {
+        CreateType("post");
+        IContent post = Publish("A post", "post");
+        Enable("Fake", ("Token", "fake-token"));
+        await Controller().PostNow(new PostNowRequest(post.Key, null, false));
+        QueueRow row = Repository.List(null, 100).Single();
+
+        // A signed-in user in no group, whose Browse check on every node fails.
+        IUser user = Stub.Make<IUser>();
+        var security = Stub.Make<IBackOfficeSecurity>(("get_CurrentUser", _ => user));
+        Func<object?[], object?> deny = _ => Task.FromResult(ContentAuthorizationStatus.UnauthorizedMissingPermissionAccess);
+        var permissions = Stub.Make<IContentPermissionService>(("AuthorizeAccessAsync", deny));
+        var limited = ActivatorUtilities.CreateInstance<SocialPostController>(Services, new FixedAccessor(security), permissions);
+
+        var list = (List<QueueItem>)((OkObjectResult)await limited.Queue()).Value!;
+        Assert.That(list, Is.Empty);
+        Assert.That(await limited.Cancel(row.Id), Is.InstanceOf<ForbidResult>());
+        Assert.That(Repository.Get(row.Id)!.Status, Is.EqualTo(QueueStatus.Pending));
+
+        var admin = (List<QueueItem>)((OkObjectResult)await Controller().Queue()).Value!;
+        Assert.That(admin.Select(i => i.Id), Is.EqualTo(new[] { row.Id }));
     }
 }
