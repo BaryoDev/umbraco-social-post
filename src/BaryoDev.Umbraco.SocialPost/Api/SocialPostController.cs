@@ -97,12 +97,13 @@ public sealed class SocialPostController(
 
     [HttpPost("queue/{id:int}/retry")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ApiError>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Retry(int id)
     {
         if (!await CanChangeAsync(id))
         {
-            return Forbid();
+            return NotFound();
         }
 
         return queue.Retry(id) ? NoContent() : Conflict(new ApiError("Only failed or cancelled rows can be retried."));
@@ -110,12 +111,13 @@ public sealed class SocialPostController(
 
     [HttpPost("queue/{id:int}/cancel")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType<ApiError>(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Cancel(int id)
     {
         if (!await CanChangeAsync(id))
         {
-            return Forbid();
+            return NotFound();
         }
 
         return queue.Cancel(id) ? NoContent() : Conflict(new ApiError("Only pending rows can be cancelled."));
@@ -132,7 +134,8 @@ public sealed class SocialPostController(
             return BadRequest(new ApiError("Social post is turned off in configuration."));
         }
 
-        IContent? content = contentService.GetById(request.ContentKey);
+        // The Browse check comes first and answers 404, so a user cannot probe nodes they may not browse.
+        IContent? content = await CanBrowseAsync(request.ContentKey) ? contentService.GetById(request.ContentKey) : null;
         if (content is null)
         {
             return NotFound();
@@ -146,11 +149,6 @@ public sealed class SocialPostController(
         if (!options.Value.DocumentTypes.Contains(content.ContentType.Alias, StringComparer.OrdinalIgnoreCase))
         {
             return BadRequest(new ApiError("This document type is not in the DocumentTypes setting."));
-        }
-
-        if (!await CanBrowseAsync(content))
-        {
-            return Forbid();
         }
 
         var networks = request.Networks is { Count: > 0 } ? request.Networks : null;
@@ -169,7 +167,7 @@ public sealed class SocialPostController(
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Share(Guid contentKey)
     {
-        IContent? content = contentService.GetById(contentKey);
+        IContent? content = await CanBrowseAsync(contentKey) ? contentService.GetById(contentKey) : null;
         if (content is null)
         {
             return NotFound();
@@ -178,11 +176,6 @@ public sealed class SocialPostController(
         if (!content.Published || content.Trashed)
         {
             return BadRequest(new ApiError("Publish the content first."));
-        }
-
-        if (!await CanBrowseAsync(content))
-        {
-            return Forbid();
         }
 
         string? url = reader.ResolveUrl(content.Key);
@@ -195,8 +188,6 @@ public sealed class SocialPostController(
         var links = ShareLinks.Networks.ToDictionary(n => n, n => ShareLinks.For(n, snap.Title, url));
         return Ok(new ShareInfo(snap.Title, url, links));
     }
-
-    private Task<bool> CanBrowseAsync(IContent content) => CanBrowseAsync(content.Key);
 
     private async Task<bool> CanBrowseAsync(Guid contentKey)
     {
@@ -217,7 +208,7 @@ public sealed class SocialPostController(
     private async Task<bool> CanChangeAsync(int id)
     {
         QueueRow? row = repository.Get(id);
-        return row is null || await CanSeeAsync(row.ContentKey);
+        return row is not null && await CanSeeAsync(row.ContentKey);
     }
 
     private ISocialConnector? Find(string name) =>
