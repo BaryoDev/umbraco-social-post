@@ -3,8 +3,9 @@ name: Publish to NuGet
 # Version comes from <Version> in the package csproj, never from a hand-typed input, so the
 # published version is always recorded in git.
 #
-# A merge to main is the release switch: when <Version> is new on nuget.org the run publishes and
-# tags the commit, and when it is not the run stops after the check job. There is no tag trigger:
+# Releases stay off until the RELEASE_ENABLED repo variable is true. Then a merge to main is the
+# release switch: when <Version> is new on nuget.org the run publishes and tags the commit, and when
+# it is not the run stops after the check job. There is no tag trigger:
 # a tag on an unreviewed commit must not publish. The publish job runs in the nuget environment,
 # limited to main, and nuget.org trusted publishing is bound to that environment.
 on:
@@ -29,10 +30,20 @@ jobs:
 
       - name: Decide whether this run has anything to publish
         id: decide
+        env:
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
         run: |
           # Manual runs always go on. Only a merge to main can be a no-op.
           if [ "$GITHUB_EVENT_NAME" != "push" ] || [ "$GITHUB_REF" != "refs/heads/main" ]; then
             echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A merge only publishes once releases are switched on for this repo, so a package can be
+          # merged and dogfooded before it reaches nuget.org. Set the RELEASE_ENABLED variable to true.
+          if [ "$RELEASE_ENABLED" != "true" ]; then
+            echo "Releases are off for this repo. Set the RELEASE_ENABLED variable to true to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
