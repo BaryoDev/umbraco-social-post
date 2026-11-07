@@ -9,6 +9,8 @@ using NUnit.Framework;
 using Umbraco.Cms.Core.Models;
 using Umbraco.Cms.Core.Models.Membership;
 using Umbraco.Cms.Core.Security;
+using Umbraco.Cms.Core.Services;
+using Umbraco.Cms.Core.Services.AuthorizationStatus;
 using Umbraco.Cms.Tests.Common.Testing;
 
 namespace BaryoDev.Umbraco.SocialPost.IntegrationTests;
@@ -107,4 +109,119 @@ public class ApiTests : SocialPostFixture
         Assert.That(await controller.Share(draft.Key), Is.InstanceOf<BadRequestObjectResult>());
         Assert.That(await controller.Share(Guid.NewGuid()), Is.InstanceOf<NotFoundResult>());
     }
+
+    [Test]
+    public async Task A_user_without_Browse_does_not_see_or_change_queue_rows()
+    {
+        CreateType("post");
+        IContent post = Publish("A post", "post");
+        Enable("Fake", ("Token", "fake-token"));
+        await Controller().PostNow(new PostNowRequest(post.Key, null, false));
+        QueueRow row = Repository.List(null, 100).Single();
+
+        // A signed-in user in no group, whose Browse check on every node fails.
+        IUser user = Stub.Make<IUser>();
+        var security = Stub.Make<IBackOfficeSecurity>(("get_CurrentUser", _ => user));
+        Func<object?[], object?> deny = _ => Task.FromResult(ContentAuthorizationStatus.UnauthorizedMissingPermissionAccess);
+        var permissions = Stub.Make<IContentPermissionService>(("AuthorizeAccessAsync", deny));
+        var limited = ActivatorUtilities.CreateInstance<SocialPostController>(Services, new FixedAccessor(security), permissions);
+
+        var list = (List<QueueItem>)((OkObjectResult)await limited.Queue()).Value!;
+        Assert.That(list, Is.Empty);
+        Assert.That(await limited.Cancel(row.Id), Is.InstanceOf<NotFoundResult>());
+        Assert.That(Repository.Get(row.Id)!.Status, Is.EqualTo(QueueStatus.Pending));
+
+        var admin = (List<QueueItem>)((OkObjectResult)await Controller().Queue()).Value!;
+        Assert.That(admin.Select(i => i.Id), Is.EqualTo(new[] { row.Id }));
+    }
+
+    private SocialPostController Limited(ContentAuthorizationStatus answer)
+    {
+        // A signed-in user in no group, so only the permission service decides.
+        IUser user = Stub.Make<IUser>();
+        var security = Stub.Make<IBackOfficeSecurity>(("get_CurrentUser", _ => user));
+        var permissions = Stub.Make<IContentPermissionService>(("AuthorizeAccessAsync", _ => Task.FromResult(answer)));
+        return ActivatorUtilities.CreateInstance<SocialPostController>(Services, new FixedAccessor(security), permissions);
+    }
+
+    [Test]
+    public async Task A_user_without_Browse_cannot_retry_a_failed_row()
+    {
+        CreateType("post");
+        IContent post = Publish("A post", "post");
+        Enable("Fake", ("Token", "fake-token"));
+        await Controller().PostNow(new PostNowRequest(post.Key, null, false));
+        QueueRow row = Repository.List(null, 100).Single();
+        Assert.That(Queue().Cancel(row.Id), Is.True);
+        Assert.That(Repository.Get(row.Id)!.Status, Is.EqualTo(QueueStatus.Cancelled));
+
+        var result = await Limited(ContentAuthorizationStatus.UnauthorizedMissingPermissionAccess).Retry(row.Id);
+
+        Assert.That(result, Is.InstanceOf<NotFoundResult>());
+        Assert.That(Repository.Get(row.Id)!.Status, Is.EqualTo(QueueStatus.Cancelled), "the row stays as it was");
+        Assert.That(await Controller().Retry(row.Id), Is.InstanceOf<NoContentResult>(), "an administrator can still retry it");
+    }
+
+    [Test]
+    public async Task Rows_of_deleted_content_are_listed_for_administrators_only()
+    {
+        CreateType("post");
+        IContent post = Publish("A post", "post");
+        Enable("Fake", ("Token", "fake-token"));
+        await Controller().PostNow(new PostNowRequest(post.Key, null, false));
+        Content.Delete(post);
+
+        var admin = (List<QueueItem>)((OkObjectResult)await Controller().Queue()).Value!;
+        Assert.That(admin, Has.Count.EqualTo(1));
+
+        // Even a permission service that says yes cannot help, because the node is gone and the user is no administrator.
+        var limited = (List<QueueItem>)((OkObjectResult)await Limited(ContentAuthorizationStatus.UnauthorizedMissingPermissionAccess).Queue()).Value!;
+        Assert.That(limited, Is.Empty);
+    }
+
+    [Test]
+    public async Task A_non_administrator_with_Browse_sees_and_changes_the_row()
+    {
+        CreateType("post");
+        IContent post = Publish("A post", "post");
+        Enable("Fake", ("Token", "fake-token"));
+        await Controller().PostNow(new PostNowRequest(post.Key, null, false));
+        QueueRow row = Repository.List(null, 100).Single();
+        SocialPostController allowed = Limited(ContentAuthorizationStatus.Success);
+
+        var list = (List<QueueItem>)((OkObjectResult)await allowed.Queue()).Value!;
+        Assert.That(list.Select(i => i.Id), Is.EqualTo(new[] { row.Id }));
+        Assert.That(await allowed.Cancel(row.Id), Is.InstanceOf<NoContentResult>());
+        Assert.That(Repository.Get(row.Id)!.Status, Is.EqualTo(QueueStatus.Cancelled));
+    }
+
+    [Test]
+    public async Task Retry_and_Cancel_answer_404_for_a_missing_row()
+    {
+        SocialPostController controller = Controller();
+
+        Assert.That(await controller.Retry(9999), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await controller.Cancel(9999), Is.InstanceOf<NotFoundResult>());
+    }
+
+    [Test]
+    public async Task Post_now_and_Share_answer_404_before_any_other_check_when_Browse_fails()
+    {
+        CreateType("post");
+        CreateType("page");
+        IContent page = Publish("A page", "page");
+        var draft = Content.Create("Draft", global::Umbraco.Cms.Core.Constants.System.Root, "post");
+        Content.Save(draft);
+        Enable("Fake", ("Token", "fake-token"));
+        SocialPostController limited = Limited(ContentAuthorizationStatus.UnauthorizedMissingPermissionAccess);
+
+        // A wrong type and an unpublished draft would be 400 for a user who may browse them.
+        Assert.That(await limited.PostNow(new PostNowRequest(page.Key, null, false)), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await limited.PostNow(new PostNowRequest(draft.Key, null, false)), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await limited.Share(draft.Key), Is.InstanceOf<NotFoundResult>());
+        Assert.That(await limited.PostNow(new PostNowRequest(Guid.NewGuid(), null, false)), Is.InstanceOf<NotFoundResult>());
+        Assert.That(Repository.List(null, 100), Is.Empty);
+    }
+
+    private QueueService Queue() => GetRequiredService<QueueService>();
 }

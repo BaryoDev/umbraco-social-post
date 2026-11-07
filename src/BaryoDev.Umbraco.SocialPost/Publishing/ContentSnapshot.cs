@@ -5,6 +5,8 @@ using Umbraco.Cms.Core.Models;
 using Umbraco.Cms.Core.Models.PublishedContent;
 using Umbraco.Cms.Core.Routing;
 using Umbraco.Cms.Core.Services;
+using Umbraco.Cms.Core.Web;
+using Umbraco.Cms.Core;
 
 namespace BaryoDev.Umbraco.SocialPost.Publishing;
 
@@ -14,10 +16,11 @@ public sealed record Snapshot(string Title, string Url, string? Summary, string?
 public sealed partial class ContentSnapshotReader(
     IOptions<SocialPostOptions> options,
     IPublishedUrlProvider urlProvider,
+    IUmbracoContextFactory umbracoContextFactory,
     IMediaService media,
     ILanguageService languages)
 {
-    // Nothing here depends on the published cache, so it works inside the publish notification.
+    // The link comes from the published cache, so at first publish it can be empty. The queue worker resolves it again when it sends.
     public Snapshot? Read(IContent content)
     {
         SocialPostOptions o = options.Value;
@@ -48,6 +51,8 @@ public sealed partial class ContentSnapshotReader(
     /// <summary>The absolute link of published content, or null when it has none yet.</summary>
     public string? ResolveUrl(Guid key)
     {
+        // The queue worker and scheduled publishing run outside a web request, where there is no Umbraco context.
+        using UmbracoContextReference reference = umbracoContextFactory.EnsureUmbracoContext();
         string url = urlProvider.GetUrl(key, UrlMode.Absolute, null);
         if (url.StartsWith('/') && Uri.TryCreate(options.Value.SiteBaseUrl, UriKind.Absolute, out Uri? b))
         {

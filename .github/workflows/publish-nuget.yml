@@ -1,0 +1,227 @@
+name: Publish to NuGet
+
+# Version comes from <Version> in the package csproj, never from a hand-typed input, so the
+# published version is always recorded in git.
+#
+# Releases stay off until the RELEASE_ENABLED repo variable is true. Then a merge to main is the
+# release switch: when <Version> is new on nuget.org the run publishes and tags the commit, and when
+# it is not the run stops after the check job. There is no tag trigger:
+# a tag on an unreviewed commit must not publish. The publish job runs in the nuget environment,
+# limited to main, and nuget.org trusted publishing is bound to that environment.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      publish: ${{ steps.decide.outputs.publish }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Decide whether this run has anything to publish
+        id: decide
+        env:
+          RELEASE_ENABLED: ${{ vars.RELEASE_ENABLED }}
+        run: |
+          # Manual runs always go on. Only a merge to main can be a no-op.
+          if [ "$GITHUB_EVENT_NAME" != "push" ] || [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # A merge only publishes once releases are switched on for this repo, so a package can be
+          # merged and dogfooded before it reaches nuget.org. Set the RELEASE_ENABLED variable to true.
+          if [ "$RELEASE_ENABLED" != "true" ]; then
+            echo "Releases are off for this repo. Set the RELEASE_ENABLED variable to true to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' src/BaryoDev.Umbraco.SocialPost/BaryoDev.Umbraco.SocialPost.csproj)
+          test -n "$VERSION" || { echo "::error::No <Version> found in the csproj"; exit 1; }
+          NORM=$(printf '%s' "$VERSION" | tr '[:upper:]' '[:lower:]' | cut -d'+' -f1)
+          case "$NORM" in *.*.*.0) NORM=${NORM%.0} ;; esac
+
+          # Fails closed, like the check in the publish job: only a 404 or a parsed list counts.
+          ID=baryodev.umbraco.socialpost
+          URL="https://api.nuget.org/v3-flatcontainer/$ID/index.json"
+          STATUS=$(curl -sS --max-time 30 -o /tmp/versions.json -w '%{http_code}' "$URL") || {
+            echo "::error::Could not reach nuget.org to check $ID." && exit 1
+          }
+          PUBLISH=false
+          case "$STATUS" in
+            404) PUBLISH=true ;;
+            200)
+              RC=0
+              jq -e --arg v "$NORM" '.versions | map(ascii_downcase | split("+")[0]) | index($v)' \
+                /tmp/versions.json > /dev/null || RC=$?
+              case "$RC" in
+                0) ;;
+                1) PUBLISH=true ;;
+                *) echo "::error::Could not read the version list for $ID (jq exit $RC)." && exit 1 ;;
+              esac
+              ;;
+            *) echo "::error::nuget.org answered $STATUS when asked about $ID." && exit 1 ;;
+          esac
+
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "$VERSION needs publishing: $PUBLISH"
+
+  publish:
+    needs: check
+    if: needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: nuget
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    permissions:
+      contents: read
+      # Lets the runner mint the OIDC token nuget.org exchanges for a short-lived API key. No
+      # long-lived secret is stored in this repository.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Read version from source
+        id: version
+        run: |
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' src/BaryoDev.Umbraco.SocialPost/BaryoDev.Umbraco.SocialPost.csproj)
+          test -n "$VERSION" || { echo "::error::No <Version> found in the csproj"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version from the csproj: $VERSION"
+
+      - name: Refuse to republish a version that already exists
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # nuget.org accepts a version once, forever. --skip-duplicate below would turn a repeat
+          # into a silent success, so fail loudly here instead.
+          #
+          # Fails closed: only a 404 counts as not published. A 200 is parsed and compared, and
+          # anything else stops the run.
+          #
+          # Versions are compared the way NuGet normalizes them: build metadata after a + is
+          # dropped, case is folded, and a fourth component is trimmed when it is zero.
+          NORM=$(printf '%s' "$VERSION" | tr '[:upper:]' '[:lower:]' | cut -d'+' -f1)
+          case "$NORM" in *.*.*.0) NORM=${NORM%.0} ;; esac
+
+          ID=baryodev.umbraco.socialpost
+          URL="https://api.nuget.org/v3-flatcontainer/$ID/index.json"
+          STATUS=$(curl -sS --max-time 30 -o /tmp/versions.json -w '%{http_code}' "$URL") || {
+            echo "::error::Could not reach nuget.org to check $ID for an existing $VERSION." && exit 1
+          }
+
+          case "$STATUS" in
+            404)
+              echo "$ID has never been published, so $VERSION is free."
+              ;;
+            200)
+              if jq -e --arg v "$NORM" \
+                   '(.versions // []) | map(ascii_downcase | split("+")[0]) | index($v)' \
+                   /tmp/versions.json > /dev/null; then
+                echo "::error::$VERSION is already on nuget.org. Bump <Version> in the csproj." && exit 1
+              fi
+              echo "$ID does not have $VERSION ($NORM) yet."
+              ;;
+            *)
+              echo "::error::nuget.org answered $STATUS when asked about $ID." && exit 1
+              ;;
+          esac
+
+      - run: dotnet restore src/BaryoDev.Umbraco.SocialPost/BaryoDev.Umbraco.SocialPost.csproj
+
+      - run: dotnet build src/BaryoDev.Umbraco.SocialPost/BaryoDev.Umbraco.SocialPost.csproj --configuration Release --no-restore
+
+      # A package must never ship without its tests having run.
+      - name: Test the package
+        run: |
+          dotnet test tests/BaryoDev.Umbraco.SocialPost.Tests --configuration Release --verbosity normal
+          dotnet test tests/BaryoDev.Umbraco.SocialPost.IntegrationTests --configuration Release --verbosity normal
+
+      - name: Pack
+        run: dotnet pack src/BaryoDev.Umbraco.SocialPost/BaryoDev.Umbraco.SocialPost.csproj --configuration Release --no-build --output ./nupkgs
+
+      - name: Confirm listing metadata was packed
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          unzip -l "./nupkgs/BaryoDev.Umbraco.SocialPost.$VERSION.nupkg" | grep -q 'icon.png'  || { echo "::error::icon.png not packed"; exit 1; }
+          unzip -l "./nupkgs/BaryoDev.Umbraco.SocialPost.$VERSION.nupkg" | grep -q 'README.md' || { echo "::error::README.md not packed"; exit 1; }
+
+      - name: List artifacts
+        run: ls -la ./nupkgs
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: nupkgs
+          path: ./nupkgs/*
+
+      # Requested here because the key expires after an hour and each OIDC token buys exactly one
+      # key. Runs on manual runs too, which never publish, so a manual run verifies the trusted publishing policy. Obtaining
+      # a key publishes nothing.
+      - name: Exchange OIDC token for a short-lived NuGet key
+        id: nuget_login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1
+        with:
+          user: ${{ vars.NUGET_USER || 'arnelirobles' }}
+
+      - name: Confirm the key was issued
+        env:
+          NUGET_API_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then
+            echo "::error::No API key returned. Check the trusted publishing policy on nuget.org." && exit 1
+          fi
+          echo "Trusted publishing OK: short-lived key issued."
+
+      # Publication needs a push to main, the only push ref this workflow runs on. A
+      # manual run cannot reach this step, because it can run on a branch that has not been through
+      # a pull request.
+      - name: Publish
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NUGET_API_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
+        run: |
+          PKG="BaryoDev.Umbraco.SocialPost.$VERSION.nupkg"
+          test -f "./nupkgs/$PKG" || { echo "::error::$PKG was not packed"; exit 1; }
+          dotnet nuget push "./nupkgs/$PKG" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+  # Its own job so the token that can write to the repository never sits beside the build, the
+  # tests or the package install. A tag made with this token does not start another run.
+  tag:
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Tag the published commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.publish.outputs.version }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            echo "$TAG already exists."
+            exit 0
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null
+          echo "Tagged $GITHUB_SHA as $TAG."

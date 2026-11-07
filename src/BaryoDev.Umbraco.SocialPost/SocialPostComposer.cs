@@ -25,7 +25,7 @@ public sealed class SocialPostComposer : IComposer
             .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false, UseProxy = false, ConnectCallback = ImageFetcher.ConnectPinned })
             .ConfigureHttpClient((sp, client) =>
             {
-                client.Timeout = TimeSpan.FromSeconds(sp.GetRequiredService<IOptions<SocialPostOptions>>().Value.HttpTimeoutSeconds);
+                client.Timeout = TimeSpan.FromSeconds(Math.Max(1, sp.GetRequiredService<IOptions<SocialPostOptions>>().Value.HttpTimeoutSeconds));
                 client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue(ImageFetcher.UserAgent, null));
             });
         AddConnector<LinkedInConnector>(services);
@@ -58,7 +58,7 @@ public sealed class SocialPostComposer : IComposer
                 : new HttpClientHandler { AllowAutoRedirect = false })
             .ConfigureHttpClient((sp, client) =>
             {
-                client.Timeout = TimeSpan.FromSeconds(sp.GetRequiredService<IOptions<SocialPostOptions>>().Value.HttpTimeoutSeconds);
+                client.Timeout = TimeSpan.FromSeconds(Math.Max(1, sp.GetRequiredService<IOptions<SocialPostOptions>>().Value.HttpTimeoutSeconds));
                 client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue(ImageFetcher.UserAgent, null));
             });
 }
