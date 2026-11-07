@@ -1,3 +1,4 @@
+using System.Data.Common;
 using BaryoDev.Umbraco.SocialPost.Connectors;
 using BaryoDev.Umbraco.SocialPost.Queue;
 using Microsoft.AspNetCore.DataProtection;
@@ -136,12 +137,22 @@ public sealed class CredentialStore(
         {
             CredentialRow? row = scope.Database.SingleOrDefault<CredentialRow>("WHERE Network = @0 AND Field = @1", connector.Name, field);
             string stored = secret ? _protector.Protect(boundHost + "\n" + value) : value;
-            if (row is null)
+            if (row is not null)
+            {
+                row.Value = stored;
+                row.Protected = secret;
+                scope.Database.Update(row);
+                return;
+            }
+
+            try
             {
                 scope.Database.Insert(new CredentialRow { Network = connector.Name, Field = field, Value = stored, Protected = secret });
             }
-            else
+            catch (DbException)
             {
+                // Another save of the same field won the race and hit the unique index. Update its row instead.
+                row = scope.Database.SingleOrDefault<CredentialRow>("WHERE Network = @0 AND Field = @1", connector.Name, field) ?? throw new InvalidOperationException("The credential row could not be written.");
                 row.Value = stored;
                 row.Protected = secret;
                 scope.Database.Update(row);
