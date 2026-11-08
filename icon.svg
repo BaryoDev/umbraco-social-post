@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="socialpost">
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="#D9501F"/>
+  <path d="M24 62 L104 26 L82 102 L62 80 Z" fill="#FFFFFF"/>
+  <path d="M104 26 L62 80 L58 102 L72 88 Z" fill="#FFCD3C"/>
+</svg>
