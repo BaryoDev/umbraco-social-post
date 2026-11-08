@@ -1,0 +1,20 @@
+{
+  "size": 128,
+  "out": ".",
+  "icons": [
+    {
+      "name": "socialpost",
+      "bg": "#D9501F",
+      "layers": [
+        {
+          "d": "M24 62 L104 26 L82 102 L62 80 Z",
+          "fill": "white"
+        },
+        {
+          "d": "M104 26 L62 80 L58 102 L72 88 Z",
+          "fill": "#FFCD3C"
+        }
+      ]
+    }
+  ]
+}
