@@ -28,7 +28,7 @@ jobs:
         run: |
           VERSION=8.28.0
           SHA256=a65b5253807a68ac0cafa4414031fd740aeb55f54fb7e55f386acb52e6a840eb
-          curl -sSLf -o gitleaks.tar.gz \
+          curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 -o gitleaks.tar.gz \
             "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
           echo "${SHA256}  gitleaks.tar.gz" | sha256sum -c -
           tar -xz -C /usr/local/bin -f gitleaks.tar.gz gitleaks
