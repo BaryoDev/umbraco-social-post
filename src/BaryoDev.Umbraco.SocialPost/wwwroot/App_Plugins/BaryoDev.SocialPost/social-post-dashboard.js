@@ -6,7 +6,7 @@ const Base = await import("@umbraco-cms/backoffice/element-api")
   .then(({ UmbElementMixin }) => UmbElementMixin(HTMLElement))
   .catch(() => HTMLElement);
 
-const STATUS_CLASS = { pending: "warn", sending: "warn", sent: "", failed: "bad", cancelled: "mute" };
+const STATUS_CLASS = { pending: "warn", sending: "warn", sent: "", failed: "bad", unknown: "bad", cancelled: "mute" };
 
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);

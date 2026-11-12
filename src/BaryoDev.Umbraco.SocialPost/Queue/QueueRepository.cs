@@ -21,18 +21,18 @@ public sealed class QueueRepository(IScopeProvider scopeProvider)
     public List<QueueRow> List(string? status, int take)
     {
         using var scope = scopeProvider.CreateScope(autoComplete: true);
-        List<QueueRow> rows = status is null
-            ? scope.Database.Fetch<QueueRow>("ORDER BY UpdatedUtc DESC")
-            : scope.Database.Fetch<QueueRow>("WHERE Status = @0 ORDER BY UpdatedUtc DESC", status);
-        return rows.Take(take).ToList();
+        return status is null
+            ? scope.Database.SkipTake<QueueRow>(0, take, "SELECT * FROM socialPostQueue ORDER BY UpdatedUtc DESC, Id DESC")
+            : scope.Database.SkipTake<QueueRow>(0, take, "SELECT * FROM socialPostQueue WHERE Status = @0 ORDER BY UpdatedUtc DESC, Id DESC", status);
     }
 
     public List<QueueRow> Due(DateTime nowUtc, int take)
     {
         using var scope = scopeProvider.CreateScope(autoComplete: true);
-        return scope.Database
-            .Fetch<QueueRow>("WHERE Status = @0 AND NextAttemptUtc <= @1 ORDER BY NextAttemptUtc", QueueStatus.Pending, nowUtc)
-            .Take(take).ToList();
+        return scope.Database.SkipTake<QueueRow>(
+            0, take,
+            "SELECT * FROM socialPostQueue WHERE Status = @0 AND NextAttemptUtc <= @1 ORDER BY NextAttemptUtc, Id",
+            QueueStatus.Pending, nowUtc);
     }
 
     /// <summary>Marks rows stuck in "sending" as failed. One statement, so it cannot undo a row that just finished.</summary>

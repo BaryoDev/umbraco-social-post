@@ -30,5 +30,8 @@ public sealed class SocialPostException(string message, bool retryable) : Except
 {
     public bool Retryable { get; } = retryable;
 
+    /// <summary>True when the post may exist anyway. The row gets its own status, which Retry refuses.</summary>
+    public bool OutcomeUnknown { get; init; }
+
     public const string UnknownOutcome = "Unknown outcome: the request may have gone out. Check the network before retrying.";
 }

@@ -4,7 +4,7 @@
 
 One row per content item and network in `socialPostQueue`, unique on `(ContentKey, Network)`. That unique index is what makes posting idempotent: a second publish finds the row and does nothing. "Force" resets the row to pending and bumps its generation.
 
-Status is `pending`, `sending`, `sent`, `failed` or `cancelled`. Each row holds the attempt count, next attempt time, remote post id and url, and the last error. The row also keeps a snapshot of title, url, summary, image url and tags taken when it was queued, so the worker never touches content. The message text is built from the network template when the row is sent.
+Status is `pending`, `sending`, `sent`, `failed`, `unknown` or `cancelled`. `unknown` is a create call that answered 2xx without a post id: the post may exist, so Retry refuses it. Each row holds the attempt count, next attempt time, remote post id and url, and the last error. The row also keeps a snapshot of title, url, summary, image url and tags taken when it was queued, so the worker never touches content. The message text is built from the network template when the row is sent.
 
 A hosted service wakes every `PollSeconds` (or when something is queued) and claims due rows with an atomic `UPDATE ... WHERE Status = 'pending'`. It runs only on the Single or SchedulingPublisher server. On failure the delay is `BaseDelaySeconds * 2^(attempts - 1)`, capped at six hours. A permanent error (bad request, bad token, missing permission) fails the row at once. After `MaxAttempts` the row is `failed`. A row stuck in `sending` for ten minutes (the site died mid-post) is marked `failed` and not retried by itself, because the post may have gone out. A person retries it after checking the network.
 
@@ -22,7 +22,7 @@ All implement `ISocialConnector` and use their own typed `HttpClient` from `IHtt
 | Bluesky | `com.atproto.server.createSession`, `com.atproto.repo.uploadBlob`, `com.atproto.repo.createRecord` on the PDS | Handle and app password, then a session JWT |
 | Mastodon | `POST {instance}/api/v1/media`, then `POST {instance}/api/v1/statuses` | Access token, `Idempotency-Key` header |
 
-Text is trimmed per network: summary first, then tags, then title. The link is never cut. Mastodon counts a link as 23 characters.
+Text is trimmed per network: summary first, then tags, then title. The link is not cut unless the template alone is over the network limit. Mastodon counts a link as 23 characters.
 
 ## Secrets
 
@@ -35,3 +35,7 @@ If the Data Protection key ring changes, stored secrets cannot be read and show 
 ## Share links
 
 `ShareLinks.For(network, text, url)` builds the share page address for `x` (`https://x.com/intent/tweet?text=&url=`), `facebook` (`https://www.facebook.com/sharer/sharer.php?u=`) and `linkedin` (`https://www.linkedin.com/sharing/share-offsite/?url=`). Values are URL-encoded. `GET share/{contentKey}` returns the title, the link and these addresses, after the same Browse permission check as post now. It does not check `DocumentTypes`, because it posts nothing. The dashboard opens them in a new tab with `noopener`.
+
+## Outbound calls and proxies
+
+The image fetch and the Bluesky and Mastodon connectors set `UseProxy = false`. Each connection resolves the host itself, refuses any non-public address and connects to the address it checked, trying each resolved address in order. With a proxy the proxy would resolve the name and the check would mean nothing. LinkedIn uses the default handler and honours a proxy.
