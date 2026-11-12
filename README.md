@@ -54,13 +54,14 @@ BaryoDev__SocialPost__Networks__Mastodon__AccessToken
 
 Or enter them in the dashboard (Settings section, "Social post"). Those are stored encrypted with ASP.NET Data Protection. The dashboard never shows a stored secret again, only "set" or "not set". A value in configuration wins over a stored one. If the Data Protection key ring is lost, stored secrets cannot be read and have to be entered again.
 
-Every network also takes a `Template` with `{title}`, `{url}`, `{summary}` and `{tags}`. The text is trimmed to the network limit by cutting the summary first, then the tags, then the title. The link is never cut.
+Every network also takes a `Template` with `{title}`, `{url}`, `{summary}` and `{tags}`. The text is trimmed to the network limit by cutting the summary first, then the tags, then the title. The link is not cut unless the template alone is over the network limit.
 
 ## How posting works
 
 - One queue row per content item and network. A second publish, or a second click, does not post again. Tick "Post again" to force it.
 - A temporary error (timeout, 429, 5xx) is retried after `BaseDelaySeconds * 2^(attempts - 1)`, up to six hours. A permanent error (bad token, bad request) fails the row at once.
 - If the final call that creates a post times out or answers 5xx, the row is marked failed with "Unknown outcome" and is not retried, because the post may exist (Mastodon is the exception, it sends an idempotency key). Connection failures before the request is sent, and 429, are retried.
+- If Bluesky or LinkedIn answers 2xx to the create call but no post id can be read from the answer, the row gets the status "unknown" with the same "Unknown outcome" text. Retry refuses it. Check the network, then use "Post again" if the post is not there.
 - Before a delayed or retried row is sent, the content is checked. If it is no longer published, the row is cancelled.
 - Post now needs the Browse permission on the node, and the document type must be in `DocumentTypes`.
 - A row stuck in "sending" after a crash is marked failed, not retried by itself, because the post may have gone out.
@@ -68,13 +69,14 @@ Every network also takes a `Template` with `{title}`, `{url}`, `{summary}` and `
 - If a network's secret comes from configuration, its address (`ServiceUrl`, `InstanceUrl`) can only come from configuration or the built-in default. The dashboard refuses to change it, so a configured secret is never sent to an address typed into the backoffice.
 - Changing a network's address (Bluesky `ServiceUrl`, Mastodon `InstanceUrl`) from the dashboard clears that network's stored secrets, and a stored secret is only used for the host it was saved for.
 - Images are fetched only from the content's own host, the host of `SiteBaseUrl`, or hosts in `ImageHosts`, and only from public addresses. A site on localhost posts without images.
+- Outbound calls to Bluesky and Mastodon and the image fetch ignore HTTP proxy settings. The connection is pinned to an address that passed the public-address check, and a proxy would resolve the name itself. A server that can only reach the internet through a proxy cannot use these. LinkedIn calls do use the proxy.
 - In a load-balanced setup only the scheduling publisher drains the queue.
 
 ## Networks
 
 | Network | Fields | Notes |
 | --- | --- | --- |
-| LinkedIn | `AuthorUrn`, `AccessToken`, `ApiVersion` | Posts as a member, so `AuthorUrn` must start with `urn:li:person:`. Link is attached as an article. |
+| LinkedIn | `AuthorUrn`, `AccessToken`, `ApiVersion` | Posts as a member, so `AuthorUrn` must start with `urn:li:person:`. Link is attached as an article. LinkedIn access tokens expire. There is no refresh, so enter a new token before the old one runs out. |
 | Bluesky | `Handle`, `AppPassword`, `ServiceUrl` | Link card with the image as thumbnail when it is under 950 KB. |
 | Mastodon | `InstanceUrl`, `AccessToken`, `Visibility` | Image is uploaded and attached. |
 

@@ -110,7 +110,7 @@ public sealed class BlueskyConnector(HttpClient client, ImageFetcher images) : I
         using (resp)
         using (json)
         {
-            string uri = ApiCall.Str(json, "uri") ?? throw new SocialPostException("Bluesky did not return a post uri.", false);
+            string uri = ApiCall.Str(json, "uri") ?? throw new SocialPostException($"Bluesky did not return a post uri. {SocialPostException.UnknownOutcome}", false) { OutcomeUnknown = true };
             string rkey = uri[(uri.LastIndexOf('/') + 1)..];
             return new PostResult(uri, $"https://bsky.app/profile/{did}/post/{rkey}");
         }

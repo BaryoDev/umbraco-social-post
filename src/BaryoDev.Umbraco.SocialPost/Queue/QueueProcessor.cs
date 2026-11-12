@@ -154,7 +154,11 @@ public sealed class QueueProcessor(
                 logger.LogError(e, "Posting {Title} to {Network} failed", row.Title, row.Network);
             }
 
-            if (!retryable || row.Attempts >= options.Value.MaxAttempts)
+            if (e is SocialPostException { OutcomeUnknown: true })
+            {
+                row.Status = QueueStatus.UnknownOutcome;
+            }
+            else if (!retryable || row.Attempts >= options.Value.MaxAttempts)
             {
                 row.Status = QueueStatus.Failed;
             }

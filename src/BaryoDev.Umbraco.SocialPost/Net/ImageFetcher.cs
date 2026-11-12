@@ -70,19 +70,47 @@ public sealed class ImageFetcher(HttpClient client, IOptions<SocialPostOptions> 
     }
 
     /// <summary>Resolves the host, refuses non-public addresses, and connects to the address it checked.</summary>
-    public static async ValueTask<Stream> ConnectPinned(SocketsHttpConnectionContext context, CancellationToken ct)
+    public static ValueTask<Stream> ConnectPinned(SocketsHttpConnectionContext context, CancellationToken ct) =>
+        ConnectPinned(context.DnsEndPoint.Host, context.DnsEndPoint.Port, Dns.GetHostAddressesAsync, ConnectSocket, ct);
+
+    /// <summary>
+    /// Every resolved address must be public. They are tried in order, and the next one is tried when a connect fails,
+    /// so a host with an unreachable first address still works.
+    /// </summary>
+    public static async ValueTask<Stream> ConnectPinned(
+        string host, int port,
+        Func<string, CancellationToken, Task<IPAddress[]>> resolve,
+        Func<IPEndPoint, CancellationToken, ValueTask<Stream>> connect,
+        CancellationToken ct)
     {
-        IPAddress[] addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, ct);
-        IPAddress? chosen = addresses.Length > 0 && addresses.All(IsPublic) ? addresses[0] : null;
-        if (chosen is null)
+        IPAddress[] addresses = await resolve(host, ct);
+        if (addresses.Length == 0 || !addresses.All(IsPublic))
         {
             throw new HttpRequestException("The image host does not resolve to a public address.");
         }
 
-        var socket = new Socket(chosen.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+        SocketException? last = null;
+        foreach (IPAddress address in addresses)
+        {
+            try
+            {
+                return await connect(new IPEndPoint(address, port), ct);
+            }
+            catch (SocketException e)
+            {
+                last = e;
+            }
+        }
+
+        throw new HttpRequestException("Could not connect to any address of the host.", last);
+    }
+
+    private static async ValueTask<Stream> ConnectSocket(IPEndPoint endpoint, CancellationToken ct)
+    {
+        var socket = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
         try
         {
-            await socket.ConnectAsync(new IPEndPoint(chosen, context.DnsEndPoint.Port), ct);
+            await socket.ConnectAsync(endpoint, ct);
             return new NetworkStream(socket, ownsSocket: true);
         }
         catch

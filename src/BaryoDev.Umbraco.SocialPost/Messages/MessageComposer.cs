@@ -5,7 +5,7 @@ using BaryoDev.Umbraco.SocialPost.Connectors;
 
 namespace BaryoDev.Umbraco.SocialPost.Messages;
 
-/// <summary>Fills {title} {url} {summary} {tags} and trims to the network limit. The link is never cut.</summary>
+/// <summary>Fills {title} {url} {summary} {tags} and trims to the network limit. The link is not cut unless the template alone is over the limit.</summary>
 public static partial class MessageComposer
 {
     public static string Compose(string template, ISocialConnector connector, string title, string url, string? summary, string? tags)

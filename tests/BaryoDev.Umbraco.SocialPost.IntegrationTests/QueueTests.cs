@@ -191,4 +191,39 @@ public class QueueTests : SocialPostFixture
         Assert.That(row.Status, Is.EqualTo(QueueStatus.Sent));
         Assert.That(row.RemoteId, Is.EqualTo("urn:li:share:fake1"));
     }
+
+    [Test]
+    public async Task A_create_call_with_no_post_id_is_an_unknown_outcome_that_retry_refuses()
+    {
+        CreateType("post");
+        Enable("Fake", ("Token", "fake-token"));
+        Fake.Behavior = _ => throw new SocialPostException("Fake did not return a post id.", false) { OutcomeUnknown = true };
+        Publish("Hello");
+
+        await Processor.RunOnceAsync(CancellationToken.None);
+
+        QueueRow row = Rows().Single();
+        Assert.That(row.Status, Is.EqualTo(QueueStatus.UnknownOutcome));
+        Assert.That(Repository.Retry(row.Id, DateTime.UtcNow), Is.False);
+        Assert.That(Rows().Single().Status, Is.EqualTo(QueueStatus.UnknownOutcome));
+    }
+
+    [Test]
+    public void List_and_Due_return_only_the_requested_page_in_order()
+    {
+        DateTime t = DateTime.UtcNow;
+        for (int i = 0; i < 5; i++)
+        {
+            QueueRow r = NewRow(Guid.NewGuid(), "Fake");
+            r.Title = "row" + i;
+            r.UpdatedUtc = t.AddMinutes(i);
+            r.NextAttemptUtc = t.AddMinutes(-10 + i);
+            Assert.That(Repository.TryInsert(r), Is.True);
+        }
+
+        Assert.That(Repository.List(null, 2).Select(r => r.Title), Is.EqualTo(new[] { "row4", "row3" }));
+        Assert.That(Repository.List(QueueStatus.Sent, 2), Is.Empty);
+        Assert.That(Repository.Due(t, 2).Select(r => r.Title), Is.EqualTo(new[] { "row0", "row1" }));
+        Assert.That(Repository.Due(t.AddMinutes(-8.5), 10).Select(r => r.Title), Is.EqualTo(new[] { "row0", "row1" }));
+    }
 }

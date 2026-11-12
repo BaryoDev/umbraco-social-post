@@ -10,6 +10,9 @@ public static class QueueStatus
     public const string Sent = "sent";
     public const string Failed = "failed";
     public const string Cancelled = "cancelled";
+
+    /// <summary>The network answered 2xx but gave no post id, so the post may exist. Retry refuses this status.</summary>
+    public const string UnknownOutcome = "unknown";
 }
 
 /// <summary>One row per content item and network. The unique index on both is what keeps posting idempotent.</summary>

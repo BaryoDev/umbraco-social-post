@@ -72,7 +72,7 @@ public sealed class LinkedInConnector(HttpClient client) : ISocialConnector
             string? urn = response.Headers.TryGetValues("x-restli-id", out var ids) ? ids.FirstOrDefault() : null;
             if (string.IsNullOrEmpty(urn))
             {
-                throw new SocialPostException("LinkedIn did not return a post id.", false);
+                throw new SocialPostException($"LinkedIn did not return a post id. {SocialPostException.UnknownOutcome}", false) { OutcomeUnknown = true };
             }
 
             return new PostResult(urn, $"https://www.linkedin.com/feed/update/{Uri.EscapeDataString(urn)}");
