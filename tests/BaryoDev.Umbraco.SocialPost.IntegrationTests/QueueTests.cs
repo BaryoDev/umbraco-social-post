@@ -224,6 +224,6 @@ public class QueueTests : SocialPostFixture
         Assert.That(Repository.List(null, 2).Select(r => r.Title), Is.EqualTo(new[] { "row4", "row3" }));
         Assert.That(Repository.List(QueueStatus.Sent, 2), Is.Empty);
         Assert.That(Repository.Due(t, 2).Select(r => r.Title), Is.EqualTo(new[] { "row0", "row1" }));
-        Assert.That(Repository.Due(t.AddMinutes(-8), 10).Select(r => r.Title), Is.EqualTo(new[] { "row0", "row1" }));
+        Assert.That(Repository.Due(t.AddMinutes(-8.5), 10).Select(r => r.Title), Is.EqualTo(new[] { "row0", "row1" }));
     }
 }
